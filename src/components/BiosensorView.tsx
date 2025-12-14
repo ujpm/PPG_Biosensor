@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Chart } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -12,7 +12,7 @@ import {
 } from 'chart.js';
 import { cameraManager } from '../core/camera/cameraManager';
 import { signalProcessor } from '../core/signal/processor';
-import { Vitals } from '../types/biosensor';
+import type { Vitals } from '../types/biosensor'; // <--- FIXED: Added 'type'
 
 // Register ChartJS components
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);

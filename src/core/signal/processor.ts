@@ -4,7 +4,7 @@
  * Handles the calculation of 'Redness' and Peak Detection algorithms.
  */
 
-import { SignalPoint, Vitals } from '../../types/biosensor';
+import type { SignalPoint, Vitals } from '../../types/biosensor'; // <--- FIXED: Added 'type'
 
 export class SignalProcessor {
     private buffer: SignalPoint[] = [];
