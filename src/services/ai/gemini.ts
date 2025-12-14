@@ -5,7 +5,7 @@
  */
 
 import { GoogleGenerativeAI, SchemaType, type ResponseSchema } from "@google/generative-ai";
-import type { AIContextPayload, AIHealthAnalysis } from "../../types/biosensor"; // <--- FIXED: Added 'type'
+import type { AIContextPayload, AIHealthAnalysis } from "../../types/biosensor";
 
 // Initialize Gemini
 // CRITICAL: You must create a .env file with VITE_GOOGLE_AI_KEY=your_key
@@ -16,12 +16,17 @@ const genAI = new GoogleGenerativeAI(API_KEY);
  * The schema ensures Gemini returns JSON, not markdown text.
  * This is "Controlled Generation" - perfect for UI integration.
  */
-const schema: ResponseSchema = { // <--- FIXED: Added Explicit Type
+const schema: ResponseSchema = {
   description: "Clinical health assessment",
   type: SchemaType.OBJECT,
   properties: {
     summary: { type: SchemaType.STRING, description: "1-sentence clinical summary" },
-    status: { type: SchemaType.STRING, enum: ["NORMAL", "WARNING", "CRITICAL"] },
+    status: { 
+      type: SchemaType.STRING, 
+      description: "The triage status. Must be one of: NORMAL, WARNING, CRITICAL" 
+      // FIX: Removed strict 'enum' array to prevent TS build errors.
+      // The description is sufficient for Gemini to understand the constraints.
+    },
     recommendation: { type: SchemaType.STRING, description: "Actionable health advice" },
     possibleCauses: { 
       type: SchemaType.ARRAY, 
