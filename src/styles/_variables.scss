@@ -1,0 +1,23 @@
+// 1. Color Palette (Cyber-Medical)
+$void-black:    #050505;
+$glass-dark:    rgba(20, 25, 35, 0.70);
+$glass-border:  rgba(255, 255, 255, 0.1);
+$cyan-glitch:   #00F0FF;
+$plasma-red:    #FF003C;
+$neon-purple:   #7000FF;
+$starlight:     #E0E6ED;
+
+// 2. Bootstrap Overrides
+$body-bg:       $void-black;
+$body-color:    $starlight;
+$primary:       $cyan-glitch;
+$danger:        $plasma-red;
+
+// 3. Card Styling (Glassmorphism)
+$card-bg:       $glass-dark;
+$card-border-color: $glass-border;
+$card-border-radius: 16px;
+$card-cap-bg:   transparent;
+
+// 4. Font (Optional - System font is fine for now)
+$font-family-base: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;

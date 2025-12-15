@@ -1,0 +1,30 @@
+// Import our overrides first
+@import "variables";
+
+// Import Bootstrap Source (Allows SASS modification)
+@import "bootstrap/scss/bootstrap";
+
+// Custom Utilities
+.glass-panel {
+  background: $glass-dark;
+  backdrop-filter: blur(12px); // The "Frosted" effect
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid $glass-border;
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+}
+
+.text-glow {
+  text-shadow: 0 0 10px rgba(0, 240, 255, 0.5);
+}
+
+// Layout Utility
+.app-container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.main-content {
+  flex: 1; // Pushes footer to bottom
+  padding-bottom: 80px; // Space for bottom nav/footer
+}
