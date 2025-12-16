@@ -1,17 +1,13 @@
 import { useNavigate } from 'react-router-dom';
 import { Activity, ShieldCheck, LightningCharge } from 'react-bootstrap-icons';
-import { useDevice } from '../hooks/useDevice';
 
 export const LandingPage = () => {
   const navigate = useNavigate();
-  const { isMobile } = useDevice();
 
+  // We removed the device check here so everyone can click "Start"
+  // The 'ScanMissionPage' will handle the blocking logic nicely.
   const handleStart = () => {
-    if (isMobile) {
-      navigate('/scan');
-    } else {
-      alert("⚠️ Desktop Detected\n\nThis scanner requires a rear camera and flash. Please open this link on your smartphone.");
-    }
+    navigate('/scan');
   };
 
   return (
@@ -28,10 +24,6 @@ export const LandingPage = () => {
         </p>
 
         {/* --- GIF PLACEHOLDER --- */}
-        {/* Instructions: 
-            1. Put your gif in public/demo.gif 
-            2. Uncomment the img tag below
-        */}
         <div className="ratio ratio-16x9 mx-auto mb-4 glass-panel rounded-4 overflow-hidden" style={{maxWidth: '350px', border: '1px solid rgba(0, 240, 255, 0.3)'}}>
            {/* <img src="/demo.gif" alt="App Demo" style={{objectFit: 'cover'}} /> */}
            <div className="d-flex align-items-center justify-content-center h-100 text-muted">
@@ -50,7 +42,7 @@ export const LandingPage = () => {
             letterSpacing: '1px'
           }}
         >
-          {isMobile ? 'INITIALIZE SCANNER' : 'OPEN ON MOBILE'}
+          INITIALIZE SCANNER
         </button>
       </div>
 

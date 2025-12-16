@@ -1,41 +1,26 @@
 /**
  * @file cameraManager.ts
  * @description Handles low-level interaction with the device camera.
- * Responsible for stream acquisition, constraint application (Torch), and cleanup.
  */
 
 export class CameraManager {
     private stream: MediaStream | null = null;
 
-    /**
-     * Initializes the camera with specific constraints for PPG signal acquisition.
-     * We prefer the 'environment' (back) camera and low resolution for performance.
-     * * @returns {Promise<MediaStream>} The active video stream.
-     * @throws {Error} If permission is denied or hardware is unavailable.
-     */
     async startCamera(): Promise<MediaStream> {
-        // Stop any existing stream first
         this.stopCamera();
 
         try {
+            // 1. Request Camera (Minimal constraints to ensure it opens fast)
             const constraints: MediaStreamConstraints = {
                 audio: false,
                 video: {
-                    facingMode: 'environment', // Use back camera
-                    // Low resolution is CRITICAL. 
-                    // 1. Better performance (less pixels to loop through).
-                    // 2. Higher potential framerate.
-                    width: { ideal: 300 },
-                    height: { ideal: 300 },
-                    frameRate: { ideal: 30 }
+                    facingMode: 'environment',
+                    width: { ideal: 320 }, // Keep it small for speed
+                    height: { ideal: 320 }
                 }
             };
 
             this.stream = await navigator.mediaDevices.getUserMedia(constraints);
-            
-            // Attempt to turn on the flashlight immediately
-            await this.toggleTorch(true);
-
             return this.stream;
         } catch (error) {
             console.error("CameraManager: Error starting stream", error);
@@ -44,52 +29,49 @@ export class CameraManager {
     }
 
     /**
-     * Attempts to toggle the device flashlight (Torch).
-     * Note: Support for this API is inconsistent across browsers (works best on Chrome/Android).
-     * * @param on {boolean} True to turn on, False to turn off.
-     * @returns {Promise<boolean>} True if successful, False if not supported.
+     * SAFE TORCH TOGGLE
+     * We wrap this in a try-catch so if it fails, it doesn't crash the app.
      */
     async toggleTorch(on: boolean): Promise<boolean> {
         if (!this.stream) return false;
 
         const track = this.stream.getVideoTracks()[0];
-        const capabilities = track.getCapabilities() as any; // 'torch' is non-standard TS yet
+        if (!track) return false;
 
-        // Check if the device actually has a torch we can control
-        if (capabilities.torch || capabilities.fillLightMode) {
+        // Check capability (TypeScript hack for non-standard API)
+        const capabilities = track.getCapabilities() as any;
+        
+        if (capabilities.torch || (capabilities.fillLightMode && capabilities.fillLightMode.includes('flash'))) {
             try {
-                // Apply the advanced constraint
+                // Add a tiny delay to let the hardware settle
+                await new Promise(r => setTimeout(r, 200));
+                
                 await track.applyConstraints({
                     advanced: [{ torch: on } as any]
                 });
                 return true;
             } catch (err) {
-                console.warn("CameraManager: Torch constraint failed", err);
+                console.warn("CameraManager: Torch failed (safe ignore)", err);
                 return false;
             }
         }
-        
-        console.warn("CameraManager: Device does not support Torch control.");
         return false;
     }
 
-    /**
-     * Stops all active tracks and releases the camera hardware.
-     */
     stopCamera(): void {
         if (this.stream) {
-            this.stream.getTracks().forEach(track => track.stop());
+            this.stream.getTracks().forEach(track => {
+                track.stop();
+                // Attempt to turn off torch explicitly before stopping
+                try { track.applyConstraints({ advanced: [{ torch: false } as any] }); } catch(e){}
+            });
             this.stream = null;
         }
     }
 
-    /**
-     * Returns the active stream if it exists.
-     */
     getStream(): MediaStream | null {
         return this.stream;
     }
 }
 
-// Export a singleton instance for global use
 export const cameraManager = new CameraManager();
