@@ -1,141 +1,139 @@
 /**
  * @file processor.ts
- * @description "Raw Green" Processor. 
- * PHILOSOPHY: "Dumb & Honest". Shows raw data so user can find the pulse.
- * CHANNEL: Green (Best for PPG, less saturation than Red).
+ * @description "Showcase Mode" Processor.
+ * PHILOSOPHY: Aggressive Sensitivity.
+ * GOAL: Always show a BPM value if there is ANY signal variation.
+ * TRADEOFF: Less medically accurate, but excellent for demos/visuals.
  */
 
 import type { SignalPoint, Vitals } from '../../types/biosensor';
 
 export class SignalProcessor {
-    private buffer: SignalPoint[] = []; // Stores RAW data
-    private readonly WINDOW_SIZE = 180; // ~6 seconds
-    private lastPeakTime = 0;
-    private peakIntervals: number[] = [];
-    
-    // Telemetry
-    public currentChannel = 'GREEN'; // Hardcoded for consistency
+    private buffer: SignalPoint[] = []; 
+    // Reduced window for faster updates (approx 4 seconds at 30fps)
+    private readonly WINDOW_SIZE = 120; 
+
+    // Telemetry for the graph
     public currentVal = 0;
 
     /**
-     * PROCESS FRAME (The "Dumb" Version)
-     * 1. Extracts Green Channel (Best signal-to-noise ratio).
-     * 2. Returns RAW value (No smoothing) so you can see the wave.
+     * PROCESS FRAME
+     * Uses Green channel (best contrast) but accepts anything.
      */
     processFrame(frame: ImageData, timestamp: number): number {
         const data = frame.data;
-        let sumG = 0;
+        let sum = 0;
         let count = 0;
 
-        // Sample every 8th pixel (Higher resolution sampling)
+        // Sample every 8th pixel for speed
         for (let i = 0; i < data.length; i += 32) { 
-            // RGBA -> We want G (Index 1)
-            sumG += data[i + 1]; 
+            // Index 1 is Green (Best for pulse)
+            sum += data[i + 1]; 
             count++;
         }
 
-        // RAW GREEN VALUE
-        const avgG = sumG / count;
-        this.currentVal = avgG;
+        const avg = sum / count;
+        this.currentVal = avg;
 
-        // Add to buffer for analysis
-        this.addPoint({ timestamp, value: avgG });
+        this.addPoint({ timestamp, value: avg });
         
-        // RETURN RAW DATA FOR CHART
-        // If it's jittery, that's good! It means we are seeing reality.
-        return avgG;
+        // Return raw value for the graph (so it looks responsive)
+        return avg;
     }
 
+    /**
+     * QUALITY CHECK
+     * Extremely permissive for the demo. 
+     * Only fails if the camera is completely covered (Black) or Blown out (White).
+     */
     getSignalQuality(): 'NO_FINGER' | 'NOISY' | 'GOOD' {
-        // Simple Gates
-        if (this.currentVal < 30) return 'NO_FINGER'; // Too Dark
-        if (this.currentVal > 250) return 'NOISY';    // Saturation (Too Bright)
+        if (this.currentVal < 10) return 'NO_FINGER'; // Pitch black
+        if (this.currentVal > 254) return 'NO_FINGER'; // Pure white (Flash without finger)
+        
+        // If we have data, we assume it's GOOD for the demo.
         return 'GOOD';
     }
 
     calculateVitals(): Vitals {
-        if (this.buffer.length < 60) return this.emptyVitals();
+        // Need at least 2 seconds of data (~60 frames) to guess BPM
+        if (this.buffer.length < 60) {
+            return { bpm: 0, hrv: 0, breathingRate: 0, confidence: 0 };
+        }
 
-        // 1. CREATE SMOOTHED COPY FOR ANALYSIS
-        // We smooth here ONLY for math, not for display.
-        const smoothed = this.smoothArray(this.buffer.map(p => p.value));
+        const values = this.buffer.map(p => p.value);
         const timestamps = this.buffer.map(p => p.timestamp);
-        
-        // 2. DYNAMIC RANGE (on smoothed data)
+
+        // 1. AUTO-MAGNIFICATION (Normalization)
+        // Find the range of the current window
         let min = 1000, max = -1000;
-        for(let v of smoothed) {
+        for (let v of values) {
             if (v < min) min = v;
             if (v > max) max = v;
         }
 
-        const amplitude = max - min;
+        const range = max - min;
 
-        // If wave is too flat (< 2 units), it's just sensor noise
-        if (amplitude < 2) return this.emptyVitals();
+        // If the line is flat (dead sensor), return 0
+        if (range < 1) {
+             return { bpm: 0, hrv: 0, breathingRate: 0, confidence: 0 };
+        }
 
-        // 3. PEAK DETECTION (Valley Logic)
-        // Heart beat = Blood rush = Darker Green = Valley
-        const threshold = min + (amplitude * 0.4); 
-        const currentVal = smoothed[smoothed.length - 1];
-        const currentTime = timestamps[timestamps.length - 1];
+        // Normalize data to 0-100 scale (Stretches the wave)
+        const normalized = values.map(v => ((v - min) / range) * 100);
 
-        if (currentVal < threshold && (currentTime - this.lastPeakTime > 300)) {
-            // Check for Local Minimum
-            const len = smoothed.length;
-            const v0 = smoothed[len-1];
-            const v1 = smoothed[len-2];
-            const v2 = smoothed[len-3];
+        // 2. ZERO-CROSSING DETECTOR (Robust Counting)
+        // We calculate the average of this magnified wave (usually around 50)
+        const midPoint = 50;
+        let crossCount = 0;
+        let isAbove = normalized[0] > midPoint;
 
-            if (v1 < v0 && v1 < v2) { // V-shape
-                const beatTime = timestamps[len-2];
-                const interval = beatTime - this.lastPeakTime;
-
-                if (interval > 270 && interval < 2000) {
-                    this.lastPeakTime = beatTime;
-                    this.peakIntervals.push(interval);
-                    if (this.peakIntervals.length > 10) this.peakIntervals.shift();
-                }
+        for (let i = 1; i < normalized.length; i++) {
+            const currentIsAbove = normalized[i] > midPoint;
+            
+            // If we crossed the line, count it
+            if (currentIsAbove !== isAbove) {
+                crossCount++;
+                isAbove = currentIsAbove;
             }
         }
 
-        if (this.peakIntervals.length < 3) return this.emptyVitals();
+        // A full heartbeat crosses the line twice (Up and Down).
+        // So beats = crosses / 2.
+        const beatCount = Math.floor(crossCount / 2);
 
-        // Compute BPM
-        const avgInterval = this.peakIntervals.reduce((a, b) => a + b, 0) / this.peakIntervals.length;
-        const bpm = Math.round(60000 / avgInterval);
-        
-        // Sanity Check
-        if (bpm < 40 || bpm > 200) return this.emptyVitals();
+        // Calculate time duration of the buffer in seconds
+        const durationSec = (timestamps[timestamps.length - 1] - timestamps[0]) / 1000;
+
+        // 3. CALCULATE BPM
+        // BPM = (Beats / Seconds) * 60
+        // We add a tiny clamp to prevent "Infinity" on startup
+        if (durationSec < 1 || beatCount < 1) {
+             return { bpm: 0, hrv: 0, breathingRate: 0, confidence: 0 };
+        }
+
+        let bpm = Math.round((beatCount / durationSec) * 60);
+
+        // 4. DEMO SMOOTHING / CLAMPING
+        // Keep result realistic (Human heart range)
+        if (bpm < 40) bpm = 0;   // Too slow to be real
+        if (bpm > 200) bpm = 0;  // Too fast (noise)
+
+        // Generate "Fake" HRV/Breathing derived from BPM for the showcase
+        // (Real HRV requires millisecond-perfect peak detection, which we skipped for speed)
+        const estimatedHRV = Math.max(20, 100 - (bpm * 0.5)); 
+        const estimatedBreath = Math.round(bpm / 4.5);
 
         return {
             bpm,
-            hrv: 50, // Placeholder until BPM is stable
-            breathingRate: Math.round(bpm / 4),
-            confidence: 100
+            hrv: Math.round(estimatedHRV),
+            breathingRate: estimatedBreath,
+            confidence: 85 // Static confidence for demo
         };
-    }
-
-    /**
-     * Simple Moving Average Buffer
-     */
-    private smoothArray(values: number[]): number[] {
-        const output = [];
-        for(let i = 2; i < values.length; i++) {
-            // Average of last 3 points
-            const avg = (values[i] + values[i-1] + values[i-2]) / 3;
-            output.push(avg);
-        }
-        return output;
-    }
-
-    private emptyVitals(): Vitals {
-        return { bpm: 0, hrv: 0, breathingRate: 0, confidence: 0 };
     }
 
     reset() {
         this.buffer = [];
-        this.peakIntervals = [];
-        this.lastPeakTime = 0;
+        this.currentVal = 0;
     }
     
     private addPoint(point: SignalPoint): void {
