@@ -1,23 +1,29 @@
-// Import our overrides first
-@import "variables";
+// src/styles/main.scss
 
-// Import Bootstrap Source (Allows SASS modification)
+@import "variables";
 @import "bootstrap/scss/bootstrap";
 
-// Custom Utilities
+// --- CRITICAL FIX: GPU PERFORMANCE OPTIMIZATION ---
+// "backdrop-filter" causes GPU process crashes on Android when combined
+// with real-time video processing (Canvas + Camera).
+// We replace it with a solid semi-transparent background.
+
 .glass-panel {
-  background: $glass-dark;
-  backdrop-filter: blur(12px); // The "Frosted" effect
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid $glass-border;
+  // OLD (CRASH PRONE):
+  // background: rgba(255, 255, 255, 0.1);
+  // backdrop-filter: blur(12px); 
+
+  // NEW (PERFORMANCE SAFE):
+  background: rgba(20, 20, 30, 0.85); // Darker, solid transparency
+  border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+  border-radius: 16px; // Ensure smooth corners
 }
 
 .text-glow {
   text-shadow: 0 0 10px rgba(0, 240, 255, 0.5);
 }
 
-// Layout Utility
 .app-container {
   min-height: 100vh;
   display: flex;
@@ -25,6 +31,6 @@
 }
 
 .main-content {
-  flex: 1; // Pushes footer to bottom
-  padding-bottom: 80px; // Space for bottom nav/footer
+  flex: 1; 
+  padding-bottom: 80px;
 }

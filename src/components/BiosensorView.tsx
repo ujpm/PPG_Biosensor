@@ -1,21 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Chart } from 'react-chartjs-2';
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Title,
-  Tooltip,
-  Legend
-} from 'chart.js';
 import { cameraManager } from '../core/camera/cameraManager';
 import { signalProcessor } from '../core/signal/processor';
-import type { Vitals } from '../types/biosensor'; // <--- FIXED: Added 'type'
-
-// Register ChartJS components
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
+import type { Vitals } from '../types/biosensor';
 
 export const BiosensorView = () => {
   const [isScanning, setIsScanning] = useState(false);
@@ -25,39 +12,37 @@ export const BiosensorView = () => {
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const animationFrameId = useRef<number>(0);
-
-  // --- ACTIONS ---
+  const rafId = useRef<number>(0);
+  const frameCount = useRef<number>(0);
 
   const startScan = async () => {
     try {
-      setStatus("Initializing Camera...");
+      setStatus("Initializing...");
       const stream = await cameraManager.startCamera();
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        await videoRef.current.play();
+        try { await cameraManager.toggleTorch(true); } catch(e) {}
+        
+        setIsScanning(true);
+        setStatus("Scanning...");
+        signalProcessor.reset();
+        frameCount.current = 0;
+        loop();
       }
-      
-      setIsScanning(true);
-      setStatus("Detecting Pulse... Place finger gently over camera/flash.");
-      loop();
     } catch (err) {
       console.error(err);
-      setStatus("Error: Camera access denied or HTTPS missing.");
+      setStatus("Camera Failed");
     }
   };
 
   const stopScan = () => {
     setIsScanning(false);
     cameraManager.stopCamera();
-    if (animationFrameId.current) {
-        cancelAnimationFrame(animationFrameId.current);
-    }
-    setStatus("Scan Stopped");
+    if (rafId.current) cancelAnimationFrame(rafId.current);
+    setStatus("Stopped");
   };
-
-  // --- CORE LOOP ---
 
   const loop = () => {
     if (!videoRef.current || !canvasRef.current) return;
@@ -65,157 +50,74 @@ export const BiosensorView = () => {
     const ctx = canvasRef.current.getContext('2d', { willReadFrequently: true });
     if (!ctx) return;
 
-    // 1. Draw video frame to hidden canvas
     ctx.drawImage(videoRef.current, 0, 0, 50, 50);
     const frame = ctx.getImageData(0, 0, 50, 50);
-
-    // 2. Process Signal (Math)
     const redValue = signalProcessor.processFrame(frame, Date.now());
+    
+    frameCount.current++;
 
-    // 3. Update Vitals every 10 frames (Optimization)
-    if (Date.now() % 10 === 0) {
-        const currentVitals = signalProcessor.calculateVitals();
-        setVitals(currentVitals);
+    if (frameCount.current % 4 === 0) {
+        setChartData(prev => [...prev, redValue].slice(-50));
+        
+        if (frameCount.current % 30 === 0) {
+            setVitals(signalProcessor.calculateVitals());
+        }
     }
-
-    // 4. Update Chart Data
-    setChartData(prev => {
-        const newData = [...prev, redValue];
-        return newData.slice(-50); // Keep last 50 points
-    });
-
-    animationFrameId.current = requestAnimationFrame(loop);
+    
+    if (isScanning) {
+        rafId.current = requestAnimationFrame(loop);
+    }
   };
 
-  // Cleanup on unmount
   useEffect(() => {
-    return () => {
-        stopScan();
-    };
+    return () => stopScan();
   }, []);
-
-  // --- RENDER ---
 
   return (
     <div className="container py-4">
-      <div className="row justify-content-center">
-        <div className="col-md-8 col-lg-6">
-          
-          {/* HEADER CARD */}
-          <div className="card shadow mb-4 border-primary">
-            <div className="card-header bg-primary text-white d-flex justify-content-between align-items-center">
-              <h5 className="mb-0">❤️ MicroSmart Biosensor</h5>
-              {isScanning && <span className="badge bg-danger animate-pulse">LIVE</span>}
-            </div>
-            <div className="card-body text-center">
-               
-              {/* HIDDEN PROCESSING CANVAS */}
-              <canvas ref={canvasRef} width="50" height="50" style={{ display: 'none' }} />
-              
-              {/* VIDEO PREVIEW (For Aiming) */}
-              <div className="ratio ratio-16x9 mb-3 bg-dark rounded border border-secondary position-relative overflow-hidden">
-                <video 
-                    ref={videoRef} 
-                    muted 
-                    playsInline 
-                    style={{ objectFit: 'cover', opacity: 0.6 }} 
-                />
-                <div className="position-absolute top-50 start-50 translate-middle text-white fw-bold" style={{ textShadow: '0px 0px 5px black', width: '100%', textAlign: 'center' }}>
+      <div className="card shadow mb-4 border-primary">
+        <div className="card-body text-center">
+            <canvas ref={canvasRef} width="50" height="50" style={{ display: 'none' }} />
+            
+            <div className="ratio ratio-16x9 mb-3 bg-dark rounded overflow-hidden">
+                <video ref={videoRef} muted playsInline style={{ objectFit: 'cover', opacity: 0.6 }} />
+                <div className="position-absolute top-50 start-50 translate-middle text-white fw-bold">
                     {status}
                 </div>
-              </div>
-
-              {/* ACTION BUTTON */}
-              {!isScanning ? (
-                <button onClick={startScan} className="btn btn-lg btn-success w-100 shadow">
-                   ▶ Start Bioscan
-                </button>
-              ) : (
-                <button onClick={stopScan} className="btn btn-lg btn-danger w-100 shadow">
-                   ⏹ Stop Scan
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* VITALS GRID */}
-          <div className="row g-2 mb-4">
-            {/* BPM */}
-            <div className="col-4">
-              <div className="card text-center h-100 border-danger">
-                <div className="card-body p-2">
-                  <small className="text-muted fw-bold" style={{ fontSize: '0.7rem' }}>HEART RATE</small>
-                  <h2 className="text-danger fw-bold display-6 mb-0">
-                    {vitals.bpm > 0 ? vitals.bpm : '--'}
-                  </h2>
-                  <small>BPM</small>
-                </div>
-              </div>
             </div>
 
-            {/* HRV */}
-            <div className="col-4">
-              <div className="card text-center h-100 border-success">
-                <div className="card-body p-2">
-                  <small className="text-muted fw-bold" style={{ fontSize: '0.7rem' }}>HRV (STRESS)</small>
-                  <h2 className="text-success fw-bold display-6 mb-0">
-                    {vitals.hrv > 0 ? vitals.hrv : '--'}
-                  </h2>
-                  <small>ms</small>
+            {!isScanning ? (
+                <button onClick={startScan} className="btn btn-success w-100">Start Bioscan</button>
+            ) : (
+                <button onClick={stopScan} className="btn btn-danger w-100">Stop Scan</button>
+            )}
+
+            {/* Vitals Display */}
+            <div className="row mt-3">
+                <div className="col-4">
+                    <h3>{vitals.bpm}</h3>
+                    <small>BPM</small>
                 </div>
-              </div>
+                <div className="col-4">
+                    <h3>{vitals.hrv}</h3>
+                    <small>HRV</small>
+                </div>
+                <div className="col-4">
+                    <h3>{vitals.breathingRate}</h3>
+                    <small>Resp</small>
+                </div>
             </div>
 
-            {/* RESPIRATION */}
-            <div className="col-4">
-              <div className="card text-center h-100 border-info">
-                <div className="card-body p-2">
-                  <small className="text-muted fw-bold" style={{ fontSize: '0.7rem' }}>BREATHING</small>
-                  <h2 className="text-info fw-bold display-6 mb-0">
-                    {vitals.breathingRate > 0 ? vitals.breathingRate : '--'}
-                  </h2>
-                  <small>rpm</small>
-                </div>
-              </div>
+            <div className="mt-3" style={{height: '150px'}}>
+                 <Chart type='line' data={{
+                    labels: Array(50).fill(''),
+                    datasets: [{ data: chartData, borderColor: 'red', pointRadius: 0, tension: 0.4 }]
+                 }} options={{ 
+                    responsive: true, maintainAspectRatio: false, animation: false,
+                    plugins: { legend: { display: false } },
+                    scales: { x: { display: false }, y: { display: false } }
+                 }} />
             </div>
-          </div>
-
-          {/* CHART CARD */}
-          <div className="card shadow mb-3">
-             <div className="card-header py-1">
-                <small className="text-muted">Live PPG Signal (Raw)</small>
-             </div>
-             <div className="card-body p-2 bg-dark">
-                <div style={{ height: '150px' }}>
-                    <Chart 
-                        type='line' 
-                        data={{
-                            labels: new Array(50).fill(''),
-                            datasets: [{
-                                label: 'Blood Flow',
-                                data: chartData,
-                                borderColor: 'rgb(220, 53, 69)', // Bootstrap Danger Color
-                                borderWidth: 2,
-                                pointRadius: 0,
-                                tension: 0.4,
-                                fill: false
-                            }]
-                        }} 
-                        options={{
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            animation: false, // CRITICAL: Disable animation for real-time performance
-                            plugins: { legend: { display: false } },
-                            scales: {
-                                x: { display: false },
-                                y: { display: false }
-                            }
-                        }}
-                    />
-                </div>
-             </div>
-          </div>
-
         </div>
       </div>
     </div>

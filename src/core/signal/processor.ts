@@ -1,94 +1,122 @@
 /**
  * @file processor.ts
- * @description Core signal processing logic.
- * RESTRICTIONS REMOVED: This version processes ALL input, regardless of quality.
+ * @description Advanced PPG Signal Processor.
+ * FIXES: "No exported member" error and "Zero BPM" issues.
  */
 
 import type { SignalPoint, Vitals } from '../../types/biosensor';
 
 export class SignalProcessor {
     private buffer: SignalPoint[] = [];
-    private readonly WINDOW_SIZE = 150; // Keep last ~5 seconds
+    private readonly WINDOW_SIZE = 180; // ~6 seconds at 30fps
     private lastPeakTime = 0;
     private peakIntervals: number[] = [];
+    
+    // Quality Metrics
+    private currentAmplitude = 0;
+    private currentLightLevel = 0;
 
     /**
      * Processes a single raw video frame.
-     * NOW: Accepts everything (no exposure protection).
+     * Calculates average redness and applies smoothing.
      */
     processFrame(frame: ImageData, timestamp: number): number {
         const data = frame.data;
         let totalRed = 0;
-        let count = 0;
+        let pixelCount = 0;
 
-        // Optimization: Loop through every 16th pixel
+        // Optimization: Sample every 16th pixel
         for (let i = 0; i < data.length; i += 16) { 
             totalRed += data[i];
-            count++;
+            pixelCount++;
         }
 
-        const avgRed = totalRed / count;
+        const rawRed = totalRed / pixelCount;
+        this.currentLightLevel = rawRed;
+
+        // 1. SMOOTHING (Simple Moving Average)
+        let smoothedRed = rawRed;
+        if (this.buffer.length > 0) {
+            const prev = this.buffer[this.buffer.length - 1].value;
+            smoothedRed = (prev * 0.7) + (rawRed * 0.3); // Low-pass filter
+        }
+
+        this.addPoint({ timestamp, value: smoothedRed });
         
-        // DIRECT PASS-THROUGH: No filtering, no "dim" checks.
-        this.addPoint({ timestamp, value: avgRed });
-        
-        return avgRed;
+        return smoothedRed;
     }
 
     /**
-     * THE GATEKEEPER (DISABLED)
-     * Always returns 'GOOD' so the UI never blocks the user.
+     * Determines if the user's finger is actually on the camera.
      */
     getSignalQuality(): 'NO_FINGER' | 'NOISY' | 'GOOD' {
-        // We act like the signal is always perfect so we can test the math.
+        // Too Dark (<20) = No finger covering flash
+        if (this.currentLightLevel < 20) return 'NO_FINGER';
+        
+        // Too Bright (>253) = Saturation
+        if (this.currentLightLevel > 253) return 'NOISY'; 
+
+        // Amplitude Check: If wave is flat, no heartbeat is present
+        if (this.currentAmplitude < 1.5) return 'NO_FINGER'; 
+
         return 'GOOD';
     }
 
     calculateVitals(): Vitals {
-        // Need a small buffer to avoid math errors on empty arrays
-        if (this.buffer.length < 30) {
+        if (this.buffer.length < 45) {
             return { bpm: 0, hrv: 0, breathingRate: 0, confidence: 0 };
         }
 
         const values = this.buffer.map(p => p.value);
+        const timestamps = this.buffer.map(p => p.timestamp);
         const currentVal = values[values.length - 1];
-        const now = this.buffer[this.buffer.length - 1].timestamp;
+        const currentTime = timestamps[timestamps.length - 1];
 
-        // 1. DYNAMIC THRESHOLDING
-        // Find the min/max of the recent window to auto-scale gain
-        const min = Math.min(...values);
-        const max = Math.max(...values);
-        
-        // Avoid division by zero if signal is flat
-        if (max - min < 1) return { bpm: 0, hrv: 0, breathingRate: 0, confidence: 0 };
+        // 1. DYNAMIC RANGE
+        let min = 1000, max = -1000;
+        for(let v of values) {
+            if (v < min) min = v;
+            if (v > max) max = v;
+        }
 
-        // Threshold is 60% up the wave
-        const threshold = min + (max - min) * 0.6;
+        this.currentAmplitude = max - min;
 
-        // 2. PEAK DETECTION
-        // Logic: Value must be > Threshold AND enough time passed since last peak
-        if (currentVal > threshold && (now - this.lastPeakTime > 300)) {
-            // Is it a local maximum? (Higher than previous 2 points)
-            const isLocalMax = currentVal >= values[values.length - 2];
+        // Signal too weak?
+        if (this.currentAmplitude < 2) {
+             return { bpm: 0, hrv: 0, breathingRate: 0, confidence: 0 };
+        }
+
+        // 2. INVERTED PEAK DETECTION (Blood Pulse = Drop in Redness)
+        const threshold = min + (this.currentAmplitude * 0.4);
+
+        // Logic: Value is LOW (Systolic dip) + Time passed + Local Valley
+        if (currentVal < threshold && (currentTime - this.lastPeakTime > 300)) {
             
-            if (isLocalMax) {
-                const interval = now - this.lastPeakTime;
-                this.lastPeakTime = now;
+            // Check neighbors to confirm it's a bottom valley
+            const len = values.length;
+            const v0 = values[len-1]; // Current
+            const v1 = values[len-2]; // Previous
+            const v2 = values[len-3]; // Previous-Previous
 
-                // Simple physiological limits (30 - 220 BPM)
+            // V-Shape Detection
+            if (v1 < v0 && v1 < v2) {
+                const beatTime = timestamps[len-2];
+                const interval = beatTime - this.lastPeakTime;
+                
+                // Physiological Limits (30 - 220 BPM)
                 if (interval > 270 && interval < 2000) {
+                    this.lastPeakTime = beatTime;
                     this.peakIntervals.push(interval);
-                    if (this.peakIntervals.length > 30) this.peakIntervals.shift();
+                    if (this.peakIntervals.length > 12) this.peakIntervals.shift();
                 }
             }
         }
 
-        // 3. CALCULATE RESULTS
-        if (this.peakIntervals.length < 3) {
+        // 3. FINAL CALCULATION
+        if (this.peakIntervals.length < 4) {
              return { bpm: 0, hrv: 0, breathingRate: 0, confidence: 0 };
         }
 
-        // BPM = 60000 / Average Interval
         const avgInterval = this.peakIntervals.reduce((a, b) => a + b, 0) / this.peakIntervals.length;
         const bpm = Math.round(60000 / avgInterval);
 
@@ -101,10 +129,10 @@ export class SignalProcessor {
         const hrv = Math.round(Math.sqrt(sumSquaredDiff / (this.peakIntervals.length - 1)));
 
         return {
-            bpm: bpm || 0,
+            bpm,
             hrv: hrv || 0,
-            breathingRate: Math.round(bpm / 4),
-            confidence: 100 // Fake confidence for testing
+            breathingRate: Math.round(bpm / 4.5),
+            confidence: 90
         };
     }
 
@@ -112,6 +140,8 @@ export class SignalProcessor {
         this.buffer = [];
         this.peakIntervals = [];
         this.lastPeakTime = 0;
+        this.currentAmplitude = 0;
+        this.currentLightLevel = 0;
     }
     
     private addPoint(point: SignalPoint): void {
@@ -122,4 +152,5 @@ export class SignalProcessor {
     }
 }
 
+// CRITICAL EXPORT: This must be OUTSIDE the class
 export const signalProcessor = new SignalProcessor();

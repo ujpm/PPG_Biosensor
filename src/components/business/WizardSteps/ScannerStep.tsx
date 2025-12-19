@@ -11,11 +11,10 @@ interface Props {
 
 export const ScannerStep = ({ progress, quality, chartData }: Props) => {
   
-  // Dynamic Color based on Quality
   const getColor = () => {
-    if (quality === 'NO_FINGER') return '#555'; // Grey
-    if (quality === 'NOISY') return '#FF003C'; // Plasma Red
-    return '#00F0FF'; // Cyan Glitch (Good)
+    if (quality === 'NO_FINGER') return '#555'; 
+    if (quality === 'NOISY') return '#FF003C'; 
+    return '#00F0FF'; 
   };
 
   const getMessage = () => {
@@ -24,9 +23,26 @@ export const ScannerStep = ({ progress, quality, chartData }: Props) => {
     return 'Acquiring Signal...';
   };
 
+  // Safe Chart Options to prevent "Canvas already in use" errors during rapid updates
+  const chartOptions = {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false as const, // CRITICAL: Disable animation for performance
+      scales: {
+          x: { display: false }, // "category" scale is hidden but used
+          y: { display: false }
+      },
+      plugins: {
+          legend: { display: false },
+          tooltip: { enabled: false }
+      },
+      elements: {
+          point: { radius: 0 } // Performance optimization
+      }
+  };
+
   return (
     <div className="text-center">
-      {/* THE ORB (Progress Ring) */}
       <div className="mx-auto mb-4 position-relative" style={{ width: 220, height: 220 }}>
         <CircularProgressbar
           value={progress}
@@ -37,33 +53,30 @@ export const ScannerStep = ({ progress, quality, chartData }: Props) => {
           })}
         />
         
-        {/* Inner Content (Live Graph) */}
-        <div className="position-absolute top-50 start-50 translate-middle" style={{width: '160px'}}>
+        <div className="position-absolute top-50 start-50 translate-middle" style={{width: '160px', height: '80px'}}>
            {quality === 'GOOD' ? (
-             <div style={{height: '80px', opacity: 0.8}}>
-                <Chart type='line' data={{
-                    labels: Array(60).fill(''),
-                    datasets: [{ 
-                        data: chartData, 
-                        borderColor: getColor(), 
-                        tension: 0.4, 
-                        pointRadius: 0 
-                    }]
-                }} options={{ 
-                    responsive: true, 
-                    maintainAspectRatio: false, 
-                    scales: {x:{display:false}, y:{display:false}}, 
-                    plugins: {legend:{display:false}},
-                    animation: false
-                }} />
+             <div style={{width: '100%', height: '100%', opacity: 0.8}}>
+                <Chart 
+                    type='line' 
+                    data={{
+                        labels: Array(60).fill(''), // X-Axis labels
+                        datasets: [{ 
+                            data: chartData, 
+                            borderColor: getColor(), 
+                            borderWidth: 2,
+                            tension: 0.4,
+                            pointRadius: 0
+                        }]
+                    }} 
+                    options={chartOptions} 
+                />
              </div>
            ) : (
-             <h1 className="display-4">⚠️</h1>
+             <h1 className="display-4 text-muted">⚠️</h1>
            )}
         </div>
       </div>
 
-      {/* Status Text */}
       <h4 className="fw-bold mb-2" style={{color: getColor()}}>
         {getMessage()}
       </h4>

@@ -1,3 +1,4 @@
+
 export const GuideStep = ({ onStart }: { onStart: () => void }) => (
   <div className="text-center animate-fade-in">
     <div className="mb-4">

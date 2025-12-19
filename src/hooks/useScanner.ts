@@ -1,11 +1,10 @@
-import { useRef, useState, useCallback } from 'react';
+import { useRef, useState, useCallback, useEffect } from 'react';
 import { cameraManager } from '../core/camera/cameraManager';
-import { signalProcessor } from '../core/signal/processor';
+import { signalProcessor } from '../core/signal/processor'; // Named import
 import type { Vitals } from '../types/biosensor';
 
-// --- FIX 1: EXPORT THESE TYPES (Fixes Vercel Build Error) ---
 export type ScanStatus = 'IDLE' | 'INITIALIZING' | 'SCANNING' | 'COMPLETED' | 'ERROR';
-export type SignalQuality = 'NO_FINGER' | 'NOISY' | 'GOOD'; 
+export type SignalQuality = 'NO_FINGER' | 'NOISY' | 'GOOD';
 
 export const useScanner = () => {
     const [status, setStatus] = useState<ScanStatus>('IDLE');
@@ -18,6 +17,7 @@ export const useScanner = () => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const rafId = useRef<number>(0);
     const activeSessionId = useRef<number>(0);
+    const frameCount = useRef<number>(0);
 
     const stopScan = useCallback(() => {
         activeSessionId.current += 1;
@@ -25,6 +25,7 @@ export const useScanner = () => {
         cameraManager.stopCamera();
         setStatus('IDLE');
         setProgress(0);
+        frameCount.current = 0;
     }, []);
 
     const startScan = useCallback(async () => {
@@ -42,52 +43,29 @@ export const useScanner = () => {
                 return;
             }
 
-            // --- FIX 2: THE DEATH MONITOR (Fixes "Blink & Die" Crash) ---
-            // If the flash toggle kills the stream, this detects it instantly.
-            const track = stream.getVideoTracks()[0];
-            track.onended = () => {
-                if (activeSessionId.current === mySessionId) {
-                    console.error("Hardware Stream Ended Unexpectedly");
-                    setErrorMsg("Camera disconnected. Hardware reset required.");
-                    setStatus('ERROR');
-                }
-            };
-            
             if (videoRef.current) {
-                // Clear old source to prevent freezing
-                videoRef.current.srcObject = null;
                 videoRef.current.srcObject = stream;
                 
-                videoRef.current.onloadedmetadata = async () => {
-                    if (activeSessionId.current !== mySessionId || !videoRef.current) return;
-                    
-                    try {
-                        await videoRef.current.play();
-                        
-                        // Safety Delay before Flash
-                        await new Promise(resolve => setTimeout(resolve, 500));
-                        if (activeSessionId.current !== mySessionId) return;
+                await videoRef.current.play().catch(console.warn);
+                
+                // Flash handling
+                try {
+                    await cameraManager.toggleTorch(true);
+                } catch (e) { console.warn("Torch failed"); }
+                
+                await new Promise(r => setTimeout(r, 500));
+                
+                if (activeSessionId.current !== mySessionId) return;
 
-                        // Toggle Flash
-                        await cameraManager.toggleTorch(true);
-                        
-                        signalProcessor.reset();
-                        setStatus('SCANNING');
-                        loop(mySessionId);
-
-                    } catch (playErr: any) {
-                        console.error("Play Execution Failed", playErr);
-                        if (activeSessionId.current === mySessionId) {
-                            setErrorMsg("Video Playback Failed: " + playErr.message);
-                            setStatus('ERROR');
-                        }
-                    }
-                };
+                signalProcessor.reset();
+                setStatus('SCANNING');
+                frameCount.current = 0;
+                loop(mySessionId);
             }
         } catch (error: any) {
             if (activeSessionId.current === mySessionId) {
-                console.error("Camera Access Failed", error);
-                setErrorMsg("Hardware Error: " + error.message);
+                console.error("Scanner Error", error);
+                setErrorMsg(error.message || "Camera Error");
                 setStatus('ERROR');
             }
         }
@@ -96,8 +74,7 @@ export const useScanner = () => {
     const loop = (sessionId: number) => {
         if (activeSessionId.current !== sessionId) return;
         if (!videoRef.current || !canvasRef.current) return;
-
-        // Skip frame if video paused (don't crash)
+        
         if (videoRef.current.paused || videoRef.current.ended) {
             rafId.current = requestAnimationFrame(() => loop(sessionId));
             return;
@@ -111,42 +88,35 @@ export const useScanner = () => {
             const frame = ctx.getImageData(0, 0, 50, 50);
             const redValue = signalProcessor.processFrame(frame, Date.now());
             
-            setChartData(prev => {
-                const next = [...prev, redValue];
-                return next.slice(-60);
-            });
+            frameCount.current++;
 
-            setProgress(prev => {
-                const newProgress = prev + 0.15;
-                if (newProgress >= 100) {
-                    const finalResults = signalProcessor.calculateVitals();
-                    setVitals(finalResults);
-                    setStatus('COMPLETED');
-                    cameraManager.stopCamera();
-                    return 100;
-                }
-                return newProgress;
-            });
-
-            if (progress < 100) {
-                rafId.current = requestAnimationFrame(() => loop(sessionId));
+            // Throttle UI Updates (Prevent Crash)
+            if (frameCount.current % 5 === 0) {
+                setChartData(prev => [...prev, redValue].slice(-60));
+                
+                setProgress(prev => {
+                    const next = prev + 0.5;
+                    if (next >= 100) {
+                        setVitals(signalProcessor.calculateVitals());
+                        setStatus('COMPLETED');
+                        cameraManager.stopCamera();
+                        return 100;
+                    }
+                    return next;
+                });
             }
 
+            if (progress < 100 && status !== 'COMPLETED') {
+                rafId.current = requestAnimationFrame(() => loop(sessionId));
+            }
         } catch (err) {
             rafId.current = requestAnimationFrame(() => loop(sessionId));
         }
     };
 
-    return {
-        status,
-        progress,
-        quality: 'GOOD' as SignalQuality, // Cast to exported type
-        vitals,
-        chartData,
-        startScan,
-        stopScan,
-        videoRef,
-        canvasRef,
-        errorMsg
-    };
+    useEffect(() => {
+        return () => stopScan();
+    }, [stopScan]);
+
+    return { status, progress, quality: signalProcessor.getSignalQuality(), vitals, chartData, startScan, stopScan, videoRef, canvasRef, errorMsg };
 };
