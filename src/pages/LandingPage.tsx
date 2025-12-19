@@ -25,7 +25,7 @@ export const LandingPage = () => {
 
         {/* --- GIF PLACEHOLDER --- */}
         <div className="ratio ratio-16x9 mx-auto mb-4 glass-panel rounded-4 overflow-hidden" style={{maxWidth: '350px', border: '1px solid rgba(0, 240, 255, 0.3)'}}>
-           {/* <img src="/demo.gif" alt="App Demo" style={{objectFit: 'cover'}} /> */}
+           {<img src="/demo.gif" alt="App Demo" style={{objectFit: 'cover'}} />}
            <div className="d-flex align-items-center justify-content-center h-100 text-muted">
               [ App Usage Demo GIF ]
            </div>
