@@ -1,8 +1,6 @@
 /**
  * @file cameraManager.ts
- * @description STRICT Camera Manager. 
- * ENFORCES: Rear Camera ('environment') Only.
- * REASON: PPG Signal requires the Flashlight to be physically adjacent to the Lens.
+ * @description Camera Manager with Exposure Correction
  */
 
 export class CameraManager {
@@ -12,16 +10,17 @@ export class CameraManager {
         this.stopCamera();
 
         try {
-            // STRICT CONSTRAINTS:
-            // We demand the 'environment' (Rear) camera.
-            // If the device is a laptop (no rear cam), this WILL fail.
-            // This is intentional behavior for this specific app.
             const constraints: MediaStreamConstraints = {
                 audio: false,
                 video: {
-                    facingMode: 'environment', // STRICT REAR CAMERA
-                    width: { ideal: 320 },      // Low Res for High FPS
-                    height: { ideal: 320 }
+                    facingMode: 'environment',
+                    width: { ideal: 320 },
+                    height: { ideal: 320 },
+                    // ATTEMPT EXPOSURE CORRECTION
+                    // @ts-ignore - Non-standard constraints that help on Android
+                    exposureMode: 'continuous', 
+                    exposureCompensation: -2, // Attempt to darken image
+                    whiteBalanceMode: 'continuous'
                 }
             };
 
@@ -29,13 +28,13 @@ export class CameraManager {
             return this.stream;
 
         } catch (error: any) {
-            // Specific handling for Laptops/Devices without Rear Cameras
             if (error.name === 'OverconstrainedError') {
-                console.error("CameraManager: Critical Error - No Rear Camera Found.");
-                throw new Error("Device does not have a Rear Camera (Required for Biosensing).");
+                 // Fallback if exposure constraints fail
+                 console.warn("Exposure constraints failed, retrying basic...");
+                 return await navigator.mediaDevices.getUserMedia({ 
+                     video: { facingMode: 'environment' } 
+                 });
             }
-            
-            console.error("CameraManager: Hardware Access Failed", error);
             throw error;
         }
     }
@@ -43,32 +42,25 @@ export class CameraManager {
     async toggleTorch(on: boolean): Promise<boolean> {
         if (!this.stream) return false;
         
-        const tracks = this.stream.getVideoTracks();
-        if (tracks.length === 0) return false;
-
-        const track = tracks[0];
-        
-        // 1. Check Capabilities
-        const capabilities = track.getCapabilities() as any;
-        const hasTorch = capabilities.torch || (capabilities.fillLightMode && capabilities.fillLightMode.includes('flash'));
-
-        if (!hasTorch) {
-            // We warn, but we don't crash. 
-            // This handles the edge case of a phone with a rear camera but broken flash driver.
-            console.warn("CameraManager: Rear Camera found, but Torch is unavailable.");
-            return false;
-        }
+        const track = this.stream.getVideoTracks()[0];
+        // @ts-ignore
+        const capabilities = track.getCapabilities ? track.getCapabilities() : {};
 
         try {
-            // 2. Stability Delay (Prevents Android Driver Crash)
             await new Promise(r => setTimeout(r, 250));
             
-            await track.applyConstraints({
-                advanced: [{ torch: on } as any]
-            });
+            const constraints = { advanced: [{ torch: on }] } as any;
+            
+            // If we can control intensity (rare, but good if available)
+            // @ts-ignore
+            if (on && capabilities.torchLevel) {
+                 // @ts-ignore
+                 constraints.advanced[0].torchLevel = 1; // Try lowest intensity
+            }
+
+            await track.applyConstraints(constraints);
             return true;
         } catch (err) {
-            console.warn("CameraManager: Torch attempt failed", err);
             return false;
         }
     }
@@ -76,11 +68,7 @@ export class CameraManager {
     stopCamera(): void {
         if (this.stream) {
             this.stream.getTracks().forEach(track => {
-                try { 
-                    // Attempt to turn off torch before killing the track
-                    track.applyConstraints({ advanced: [{ torch: false } as any] });
-                } catch(e) {}
-                track.stop();
+                try { track.stop(); } catch(e) {}
             });
             this.stream = null;
         }

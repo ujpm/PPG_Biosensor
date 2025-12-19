@@ -126,9 +126,15 @@ export const ScannerStep = ({ progress, quality, chartData }: Props) => {
                     options={debugOptions} 
                 />
             </div>
+           {/* ...... */}
+            
             <div className="d-flex justify-content-between align-items-center mt-1 px-2">
-                 <span className="badge bg-secondary" style={{fontSize: '0.6rem'}}>BUFFER: {chartData.length}</span>
-                 <span className="font-monospace text-info small">VAL: {currentValue.toFixed(2)}</span>
+                 <span className="badge bg-secondary" style={{fontSize: '0.6rem'}}>
+                    CH: {currentValue > 240 ? 'SATURATED' : 'ACTIVE'}
+                 </span>
+                 <span className={`font-monospace small ${currentValue > 250 ? 'text-danger' : 'text-info'}`}>
+                    VAL: {currentValue.toFixed(1)}
+                 </span>
             </div>
           </div>
       </div>
