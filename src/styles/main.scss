@@ -1,28 +1,25 @@
 // src/styles/main.scss
 
+// Import our overrides first
 @import "variables";
+
+// Import Bootstrap Source
 @import "bootstrap/scss/bootstrap";
 
-// --- CRITICAL FIX: REMOVE BLUR ---
-// Real-time blur over a 60fps video feed crashes mobile GPU processes.
-// Use a solid transparent color instead.
-
+// Custom Utilities
 .glass-panel {
-  // CRASHING CODE (Do not use in production):
-  // backdrop-filter: blur(12px); 
-  // -webkit-backdrop-filter: blur(12px);
-
-  // SAFE CODE:
-  background: rgba(20, 20, 30, 0.90); // Slightly more opaque for readability
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  // CRITICAL FIX: Removed "backdrop-filter: blur" to prevent mobile GPU crash
+  background: rgba(20, 20, 30, 0.95); // Higher opacity to replace the blur
+  border: 1px solid $glass-border;
   box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
-  border-radius: 16px;
+  // -webkit-backdrop-filter: blur(12px); <--- DELETED
 }
 
 .text-glow {
   text-shadow: 0 0 10px rgba(0, 240, 255, 0.5);
 }
 
+// Layout Utility
 .app-container {
   min-height: 100vh;
   display: flex;
@@ -30,6 +27,6 @@
 }
 
 .main-content {
-  flex: 1; 
-  padding-bottom: 80px;
+  flex: 1; // Pushes footer to bottom
+  padding-bottom: 80px; // Space for bottom nav/footer
 }

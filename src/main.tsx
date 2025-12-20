@@ -23,6 +23,7 @@ import {
   Filler
 } from 'chart.js';
 
+// Register them once, globally.
 ChartJS.register(
   CategoryScale,
   LinearScale,
