@@ -1,26 +1,28 @@
 /**
  * @file main.tsx
- * @description Entry point. Registers Chart.js GLOBALLY to prevent "Unregistered Scale" crashes.
+ * @description Entry point. 
+ * CRITICAL FIX: Registers Chart.js components globally to prevent 
+ * "Unregistered Scale" errors in Vercel/Production builds.
  */
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.tsx'
 import './styles/main.scss'; 
 
-// --- CRITICAL FIX: Global Chart.js Registration ---
+// --- CRITICAL: PREVENT VERCEL CRASH ---
+// We must register these components manually so Tree-Shaking doesn't remove them.
 import {
   Chart as ChartJS,
-  CategoryScale,
+  CategoryScale, // <--- The culprit causing the crash
   LinearScale,
   PointElement,
   LineElement,
   Title,
   Tooltip,
   Legend,
-  Filler // Added Filler just in case you want area charts later
+  Filler
 } from 'chart.js';
 
-// Register them once, globally.
 ChartJS.register(
   CategoryScale,
   LinearScale,

@@ -3,21 +3,20 @@
 @import "variables";
 @import "bootstrap/scss/bootstrap";
 
-// --- CRITICAL FIX: GPU PERFORMANCE OPTIMIZATION ---
-// "backdrop-filter" causes GPU process crashes on Android when combined
-// with real-time video processing (Canvas + Camera).
-// We replace it with a solid semi-transparent background.
+// --- CRITICAL FIX: REMOVE BLUR ---
+// Real-time blur over a 60fps video feed crashes mobile GPU processes.
+// Use a solid transparent color instead.
 
 .glass-panel {
-  // OLD (CRASH PRONE):
-  // background: rgba(255, 255, 255, 0.1);
+  // CRASHING CODE (Do not use in production):
   // backdrop-filter: blur(12px); 
+  // -webkit-backdrop-filter: blur(12px);
 
-  // NEW (PERFORMANCE SAFE):
-  background: rgba(20, 20, 30, 0.85); // Darker, solid transparency
+  // SAFE CODE:
+  background: rgba(20, 20, 30, 0.90); // Slightly more opaque for readability
   border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
-  border-radius: 16px; // Ensure smooth corners
+  border-radius: 16px;
 }
 
 .text-glow {
